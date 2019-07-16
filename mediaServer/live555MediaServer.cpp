@@ -17,11 +17,46 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 // LIVE555 Media Server
 // main program
 
+#include <unistd.h>
 #include <BasicUsageEnvironment.hh>
 #include "DynamicRTSPServer.hh"
 #include "version.hh"
 
-int main(int argc, char** argv) {
+struct globalArgs_t {
+  int RtspPort;             /* -R option */
+  int HttpPort;             /* -H option */
+} globalArgs;
+
+static const char *optString = "R:H:h";
+
+void display_usage( void )
+{
+  puts("-R to set RTSP Server port, default: 554\n");
+  puts("-H to set HTTP Server port, set 0 for disable, default: 80\n");
+  exit(1);
+}
+
+int main(int argc, char *argv[]) {
+  globalArgs.RtspPort = 554;
+  globalArgs.HttpPort = 80;
+  int opt = getopt( argc, argv, optString );
+  while( opt != -1 ) {
+    switch( opt ) {
+      case 'R':
+        globalArgs.RtspPort = atoi(optarg);
+        break;
+      case 'H':
+        globalArgs.HttpPort = atoi(optarg);
+        break;
+      case 'h':
+        display_usage();
+        break;
+      default:
+        break;
+    }
+    opt = getopt(argc, argv, optString);
+  }
+
   // Begin by setting up our usage environment:
   TaskScheduler* scheduler = BasicTaskScheduler::createNew();
   UsageEnvironment* env = BasicUsageEnvironment::createNew(*scheduler);
@@ -36,14 +71,9 @@ int main(int argc, char** argv) {
 #endif
 
   // Create the RTSP server.  Try first with the default port number (554),
-  // and then with the alternative port number (8554):
   RTSPServer* rtspServer;
-  portNumBits rtspServerPortNum = 554;
+  portNumBits rtspServerPortNum = globalArgs.RtspPort;
   rtspServer = DynamicRTSPServer::createNew(*env, rtspServerPortNum, authDB);
-  if (rtspServer == NULL) {
-    rtspServerPortNum = 8554;
-    rtspServer = DynamicRTSPServer::createNew(*env, rtspServerPortNum, authDB);
-  }
   if (rtspServer == NULL) {
     *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
     exit(1);
@@ -80,10 +110,14 @@ int main(int argc, char** argv) {
   // Try first with the default HTTP port (80), and then with the alternative HTTP
   // port numbers (8000 and 8080).
 
-  if (rtspServer->setUpTunnelingOverHTTP(80) || rtspServer->setUpTunnelingOverHTTP(8000) || rtspServer->setUpTunnelingOverHTTP(8080)) {
-    *env << "(We use port " << rtspServer->httpServerPortNum() << " for optional RTSP-over-HTTP tunneling, or for HTTP live streaming (for indexed Transport Stream files only).)\n";
-  } else {
-    *env << "(RTSP-over-HTTP tunneling is not available.)\n";
+  int httpPort = globalArgs.HttpPort;
+  if (httpPort != 0){
+    if (rtspServer->setUpTunnelingOverHTTP(httpPort)) {
+      *env << "(We use port " << rtspServer->httpServerPortNum() << " for optional RTSP-over-HTTP tunneling, or for HTTP live streaming (for indexed Transport Stream files only).)\n";
+    } else {
+      *env << "(RTSP-over-HTTP tunneling is not available.)\n";
+      exit(1);
+    }
   }
 
   env->taskScheduler().doEventLoop(); // does not return
